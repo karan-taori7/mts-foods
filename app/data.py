@@ -23,7 +23,7 @@ ORDERS = []
 BUSINESS_INFO = {
     "name": "MT's Foods",
     "city": "Nagpur",
-    "description": " Delicious,rich in protien papad, achar, and katran made with traditional taste.",
+    "description": "Authentic papad, achar, and katran — manufactured in our own factory in Nagpur with traditional recipes. Specialists in Garlic Papad and Rajasthani Masala Papad.",
     "delivery_area": "Nagpur",
     "phone": "9326455333"
 }

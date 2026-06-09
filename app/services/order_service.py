@@ -1,17 +1,14 @@
-from app.database import SessionLocal
 from app.models import Order
 from app.services.product_service import get_product_by_name
 
 
-def create_order(order):
-    product = get_product_by_name(order.product_name)
+def create_order(db, order):
+    product = get_product_by_name(db, order.product_name)
 
     if product is None:
         return {"error": "Product not found"}
 
     total_price = product.mrp * order.quantity
-
-    db = SessionLocal()
 
     new_order = Order(
         customer_name=order.customer_name,
@@ -24,7 +21,6 @@ def create_order(order):
     db.add(new_order)
     db.commit()
     db.refresh(new_order)
-    db.close()
 
     return {
         "message": "Order received",
@@ -37,11 +33,6 @@ def create_order(order):
     }
 
 
-def get_all_orders():
-    db = SessionLocal()
-
+def get_all_orders(db):
     orders = db.query(Order).all()
-
-    db.close()
-
     return orders

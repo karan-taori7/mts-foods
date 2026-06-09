@@ -1,26 +1,28 @@
 import os
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
-from pydantic import BaseModel
+from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
 from anthropic import AsyncAnthropic
-from app.services.business_service import get_business_info
-from app.services.order_service import (
-    create_order as create_order_service,
-    get_all_orders,
-)
+from app.services.chat_service import build_product_context
 
+from app.database import get_db
+from app.schemas import (
+    ChatRequest,
+    ChatResponse,
+    OrderRequest,
+    ProductResponse,
+)
+from app.services.business_service import get_business_info
 from app.services.product_service import (
     get_all_products,
     get_product_by_id,
-    get_product_by_name,
 )
-
 from app.services.order_service import (
     create_order as create_order_service,
     get_all_orders,
 )
-from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
@@ -37,30 +39,72 @@ app.add_middleware(
 )
 
 
-class ChatRequest(BaseModel):
-    message: str
+@app.get("/", status_code=200)
+async def root():
+    return {"status": "MT's Foods API is running"}
 
 
-class ChatResponse(BaseModel):
-    reply: str
+@app.get(
+    "/products",
+    response_model=list[ProductResponse],
+    status_code=200,
+)
+def get_products(db: Session = Depends(get_db)):
+    return get_all_products(db)
 
 
-class OrderRequest(BaseModel):
-    customer_name: str
-    phone_number: str
-    product_name: str
-    quantity: int
+@app.get(
+    "/products/{product_id}",
+    response_model=ProductResponse,
+    status_code=200,
+)
+def get_product(product_id: int, db: Session = Depends(get_db)):
+    product = get_product_by_id(db, product_id)
+
+    if product is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Product not found",
+        )
+
+    return product
 
 
-@app.post("/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest):
+@app.post("/orders", status_code=201)
+def create_order(order: OrderRequest, db: Session = Depends(get_db)):
+    return create_order_service(db, order)
+
+
+@app.get("/orders", status_code=200)
+def get_orders(db: Session = Depends(get_db)):
+    return get_all_orders(db)
+
+
+@app.get("/business-info", status_code=200)
+def business_info():
+    return get_business_info()
+
+@app.post("/chat", response_model=ChatResponse, status_code=200)
+async def chat(req: ChatRequest, db: Session = Depends(get_db)):
+    product_context = build_product_context(db)
+
     instructions = (
-        "You are the friendly assistant for MT's Foods, "
-        "a homemade papad, achar, and katran business in Nagpur. "
-        "Answer customer questions warmly and concisely."
-    )
+    "You are the friendly assistant for MT's Foods, "
+    "a homemade papad business in Nagpur.\n\n"
+    "Rules:\n"
+    "- Answer in 2-4 short lines.\n"
+    "- Do not use markdown, bold text, bullet symbols, or asterisks.\n"
+    "- Use simple plain text only.\n"
+    "- Mention prices only from the product list below.\n"
+    "- If asked for products, suggest only 3-5 relevant products, not the full list.\n\n"
+    "Product list from database:\n"
+    f"{product_context}"
+)
 
-    customer_message = {"role": "user", "content": req.message}
+    customer_message = {
+        "role": "user",
+        "content": req.message,
+    }
 
     response = await client.messages.create(
         model="claude-sonnet-4-20250514",
@@ -70,39 +114,5 @@ async def chat(req: ChatRequest):
     )
 
     reply_text = response.content[0].text
+
     return ChatResponse(reply=reply_text)
-
-
-@app.get("/")
-async def root():
-    return {"status": "MT's Foods API is running"}
-
-
-@app.get("/products")
-def get_products():
-    return get_all_products()
-
-
-@app.get("/products/{product_id}")
-def get_product(product_id: int):
-    product = get_product_by_id(product_id)
-
-    if product is None:
-        return {"error": "Product not found"}
-
-    return product
-
-
-@app.post("/orders")
-def create_order(order: OrderRequest):
-    result= create_order_service(order)
-    return result
-
-@app.get("/orders")
-def get_orders():
-    return get_all_orders()
-
-@app.get("/business-info")
-def business_info():
-    return get_business_info()
-    

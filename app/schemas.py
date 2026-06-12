@@ -1,16 +1,50 @@
 from pydantic import BaseModel, ConfigDict, Field
+from typing import Literal
 
 
 # =========================
 # Chat Schemas
 # =========================
 
+
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1)
+
+
 class ChatRequest(BaseModel):
-    message: str
+    messages: list[ChatMessage] = Field(min_length=1)
 
 
 class ChatResponse(BaseModel):
     reply: str
+
+
+# =========================
+# Auth Schemas
+# =========================
+
+class RegisterRequest(BaseModel):
+    email: str = Field(min_length=5)
+    password: str = Field(min_length=6)
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+    role: str
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 # =========================

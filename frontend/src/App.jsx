@@ -86,6 +86,7 @@ export default function App() {
   async function sendChat() {
     const text = chatInput.trim();
     if (!text || chatLoading) return;
+    const history = messages.slice(1);
     setMessages((m) => [...m, { role: "user", content: text }]);
     setChatInput("");
     setChatLoading(true);
@@ -93,7 +94,7 @@ export default function App() {
       const res = await fetch(`${API}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ messages: [...history, { role: "user", content: text }] }),
       });
       const data = await res.json();
       setMessages((m) => [...m, { role: "assistant", content: data.reply }]);

@@ -13,6 +13,7 @@ from app.schemas import (
     ChatRequest,
     ChatResponse,
     OrderRequest,
+    OrderStatusUpdate,
     ProductResponse,
     RegisterRequest,
     LoginRequest,
@@ -39,6 +40,22 @@ from app.services.order_service import (
 load_dotenv()
 
 Base.metadata.create_all(bind=engine)
+
+
+def seed_products():
+    from app.database import SessionLocal
+    from app.models import Product
+    from app.data import PRODUCTS
+    db = SessionLocal()
+    try:
+        if db.query(Product).first() is None:
+            db.bulk_insert_mappings(Product, PRODUCTS)
+            db.commit()
+    finally:
+        db.close()
+
+
+seed_products()
 
 client = AsyncAnthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
@@ -152,7 +169,7 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
     user = get_user_by_email(db, req.email)
     if not user or not verify_password(req.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    token = create_access_token({"sub": user.id, "role": user.role})
+    token = create_access_token({"sub": str(user.id), "role": user.role})
     return TokenResponse(access_token=token)
 
 
@@ -173,14 +190,14 @@ def admin_get_orders(db: Session = Depends(get_db), _=Depends(get_current_admin)
 @app.patch("/admin/orders/{order_id}/status", status_code=200)
 def update_order_status(
     order_id: int,
-    status: str,
+    body: OrderStatusUpdate,
     db: Session = Depends(get_db),
     _=Depends(get_current_admin),
 ):
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    order.status = status
+    order.status = body.status
     db.commit()
     db.refresh(order)
     return order

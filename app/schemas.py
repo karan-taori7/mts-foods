@@ -21,6 +21,14 @@ class ChatResponse(BaseModel):
 
 
 # =========================
+# Admin Schemas
+# =========================
+
+class OrderStatusUpdate(BaseModel):
+    status: str = Field(min_length=1)
+
+
+# =========================
 # Auth Schemas
 # =========================
 

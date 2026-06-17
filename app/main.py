@@ -1,5 +1,8 @@
+import hmac
+import hashlib
 import os
 
+import razorpay 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,6 +22,8 @@ from app.schemas import (
     LoginRequest,
     TokenResponse,
     UserResponse,
+    PaymentCreateRequest,
+    PaymentVerifyRequest,
 )
 from app.dependencies import get_current_user, get_current_admin
 from app.services.auth_service import (
@@ -31,6 +36,7 @@ from app.services.business_service import get_business_info
 from app.services.product_service import (
     get_all_products,
     get_product_by_id,
+    get_product_by_name,
 )
 from app.services.order_service import (
     create_order as create_order_service,
@@ -40,6 +46,9 @@ from app.services.order_service import (
 load_dotenv()
 
 Base.metadata.create_all(bind=engine)
+
+RAZORPAY_KEY_ID = os.environ["RAZORPAY_KEY_ID"]
+RAZORPAY_KEY_SECRET = os.environ["RAZORPAY_KEY_SECRET"]
 
 
 def seed_products():
@@ -57,13 +66,16 @@ def seed_products():
 
 seed_products()
 
-client = AsyncAnthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+anthropic_client = AsyncAnthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
 app = FastAPI(title="MT's Foods API")
 
+_origins_raw = os.environ.get("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost")
+_allowed_origins = [o.strip() for o in _origins_raw.split(",")]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -106,11 +118,6 @@ def create_order(order: OrderRequest, db: Session = Depends(get_db)):
     return create_order_service(db, order)
 
 
-@app.get("/orders", status_code=200)
-def get_orders(db: Session = Depends(get_db)):
-    return get_all_orders(db)
-
-
 @app.get("/business-info", status_code=200)
 def business_info():
     return get_business_info()
@@ -122,7 +129,7 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db)):
 
     instructions = (
         "You are the friendly assistant for MT's Foods, "
-        "a homemade papad business in Nagpur.\n\n"
+        "a homemade papad business.\n\n"
         "Rules:\n"
         "- Answer in 2-4 short lines.\n"
         "- Do not use markdown, bold text, bullet symbols, or asterisks.\n"
@@ -141,7 +148,7 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db)):
         for message in req.messages
     ]
 
-    response = await client.messages.create(
+    response = await anthropic_client.messages.create(
         model="claude-sonnet-4-20250514",
         max_tokens=500,
         system=instructions,
@@ -176,6 +183,66 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
 @app.get("/auth/me", response_model=UserResponse, status_code=200)
 def me(current_user=Depends(get_current_user)):
     return current_user
+
+
+# =========================
+# Payment Routes
+# =========================
+
+@app.post("/payment/create-order", status_code=200)
+def payment_create_order(req: PaymentCreateRequest, db: Session = Depends(get_db)):
+    product = get_product_by_name(db, req.product_name)
+    if product is None:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    total_paise = product.mrp * req.quantity * 100
+
+    rz_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+    rz_order = rz_client.order.create({
+        "amount": total_paise,
+        "currency": "INR",
+        "receipt": f"mts_{req.phone_number}",
+    })
+
+    return {
+        "razorpay_order_id": rz_order["id"],
+        "amount": rz_order["amount"],
+        "currency": rz_order["currency"],
+        "key_id": RAZORPAY_KEY_ID,
+    }
+
+
+@app.post("/payment/verify", status_code=201)
+def payment_verify(req: PaymentVerifyRequest, db: Session = Depends(get_db)):
+    msg = f"{req.razorpay_order_id}|{req.razorpay_payment_id}"
+    generated = hmac.new(
+        RAZORPAY_KEY_SECRET.encode(),
+        msg.encode(),
+        hashlib.sha256,
+    ).hexdigest()
+
+    if not hmac.compare_digest(generated, req.razorpay_signature):
+        raise HTTPException(status_code=400, detail="Invalid payment signature")
+
+    product = get_product_by_name(db, req.product_name)
+    if product is None:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    order = Order(
+        customer_name=req.customer_name,
+        phone_number=req.phone_number,
+        product_name=product.name,
+        quantity=req.quantity,
+        total_mrp=product.mrp * req.quantity,
+        payment_status="paid",
+        razorpay_order_id=req.razorpay_order_id,
+        razorpay_payment_id=req.razorpay_payment_id,
+    )
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+
+    return {"message": "Payment verified and order placed", "order_id": order.id}
 
 
 # =========================

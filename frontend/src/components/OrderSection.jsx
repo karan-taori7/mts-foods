@@ -30,7 +30,7 @@ export default function OrderSection({ products, form, setForm, submitting, onSu
           <input
             id="customer_name"
             name="customer_name"
-            placeholder="e.g. Priya Sharma"
+            placeholder="Your full name"
             value={form.customer_name}
             onChange={handleChange}
             required

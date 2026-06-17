@@ -6,7 +6,7 @@ const CARDS = [
       </svg>
     ),
     title: "Our Own Factory",
-    desc: "We manufacture in our own factory in Nagpur — full control over quality, consistency, and taste in every batch.",
+    desc: "We manufacture in our own factory — full control over quality, consistency, and taste in every batch.",
   },
   {
     icon: (
@@ -25,7 +25,7 @@ const CARDS = [
       </svg>
     ),
     title: "Traditional Recipes",
-    desc: "Recipes passed down through generations, keeping authentic Nagpuri flavour alive in every bite.",
+    desc: "Recipes passed down through generations, keeping authentic flavour alive in every bite.",
   },
   {
     icon: (
@@ -37,7 +37,7 @@ const CARDS = [
       </svg>
     ),
     title: "Trusted by Families",
-    desc: "Hundreds of families in Nagpur trust MT's Foods for their daily papad, katran, and snacks.",
+    desc: "Hundreds of families trust MT's Foods for their daily papad, katran, and snacks.",
   },
 ];
 

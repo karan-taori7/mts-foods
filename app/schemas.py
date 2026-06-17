@@ -1,4 +1,5 @@
-from pydantic import BaseModel, ConfigDict, Field
+import re
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Literal
 
 
@@ -65,6 +66,13 @@ class OrderRequest(BaseModel):
     product_name: str = Field(min_length=2)
     quantity: int = Field(gt=0)
 
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone(cls, v):
+        if not re.fullmatch(r"[6-9]\d{9}", v):
+            raise ValueError("Must be a valid 10-digit Indian mobile number")
+        return v
+
 
 class OrderResponse(BaseModel):
     id: int
@@ -77,6 +85,34 @@ class OrderResponse(BaseModel):
     model_config = ConfigDict(
         from_attributes=True
     )
+
+
+# =========================
+# Payment Schemas
+# =========================
+
+class PaymentCreateRequest(BaseModel):
+    customer_name: str = Field(min_length=2)
+    phone_number: str = Field(min_length=10)
+    product_name: str = Field(min_length=2)
+    quantity: int = Field(gt=0)
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone(cls, v):
+        if not re.fullmatch(r"[6-9]\d{9}", v):
+            raise ValueError("Must be a valid 10-digit Indian mobile number")
+        return v
+
+
+class PaymentVerifyRequest(BaseModel):
+    razorpay_payment_id: str
+    razorpay_order_id: str
+    razorpay_signature: str
+    customer_name: str
+    phone_number: str
+    product_name: str
+    quantity: int
 
 
 # =========================

@@ -14,7 +14,7 @@ export default function Footer({ business }) {
         <div className="footer-brand">
           <img src={logo} alt="MT's Foods" />
           <strong>MT's Foods</strong>
-          <p>Authentic papads & snacks,<br />manufactured in Nagpur.</p>
+          <p>Authentic papads & snacks,<br />made in our own factory.</p>
         </div>
 
         <div className="footer-col">
@@ -29,13 +29,12 @@ export default function Footer({ business }) {
         <div className="footer-col">
           <h4>Contact Us</h4>
           <p>{business?.phone || "9326455333"}</p>
-          <p>Nagpur, Maharashtra</p>
           <p>Orders by phone call</p>
         </div>
       </div>
 
       <div className="footer-bottom">
-        <p>© {new Date().getFullYear()} MT's Foods. All rights reserved. Made with love in Nagpur.</p>
+        <p>© {new Date().getFullYear()} MT's Foods. All rights reserved. Made with love.</p>
       </div>
     </footer>
   );

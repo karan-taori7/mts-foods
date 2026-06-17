@@ -33,4 +33,7 @@ class Order(Base):
     quantity = Column(Integer, nullable=False)
     total_mrp = Column(Integer, nullable=False)
     status = Column(Text, nullable=False, default="pending")
+    payment_status = Column(Text, nullable=False, default="pending")
+    razorpay_order_id = Column(Text, nullable=True)
+    razorpay_payment_id = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now())

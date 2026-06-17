@@ -1,3 +1,4 @@
+from fastapi import HTTPException
 from app.models import Order
 from app.services.product_service import get_product_by_name
 
@@ -6,7 +7,7 @@ def create_order(db, order):
     product = get_product_by_name(db, order.product_name)
 
     if product is None:
-        return {"error": "Product not found"}
+        raise HTTPException(status_code=404, detail="Product not found")
 
     total_price = product.mrp * order.quantity
 

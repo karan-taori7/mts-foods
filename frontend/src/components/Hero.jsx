@@ -24,7 +24,7 @@ export default function Hero({ onChatOpen }) {
           </div>
           <div className="hero-stat-sep" />
           <div className="hero-stat">
-            <span className="hero-stat-num">500+</span>
+            <span className="hero-stat-num">10000+</span>
             <span className="hero-stat-label">Happy Families</span>
           </div>
           <div className="hero-stat-sep" />

@@ -37,3 +37,21 @@ def create_order(db, order):
 def get_all_orders(db):
     orders = db.query(Order).all()
     return orders
+
+
+def get_order_by_idempotency_key(db, idempotency_key):
+    return db.query(Order).filter(Order.idempotency_key == idempotency_key).first()
+
+
+def get_order_by_razorpay_order_id(db, razorpay_order_id):
+    return db.query(Order).filter(Order.razorpay_order_id == razorpay_order_id).first()
+
+
+def get_recent_orders_by_phone(db, phone_number, limit=5):
+    return (
+        db.query(Order)
+        .filter(Order.phone_number == phone_number)
+        .order_by(Order.created_at.desc())
+        .limit(limit)
+        .all()
+    )

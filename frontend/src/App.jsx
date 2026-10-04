@@ -127,10 +127,19 @@ export default function App() {
         return;
       }
 
+      // One key per checkout attempt — if this request gets retried
+      // (flaky network, accidental double submit) the backend returns the
+      // same Razorpay order instead of creating a duplicate one.
+      const idempotencyKey = crypto.randomUUID();
+
       const res = await fetch(`${API}/payment/create-order`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, quantity: Number(form.quantity) }),
+        body: JSON.stringify({
+          ...form,
+          quantity: Number(form.quantity),
+          idempotency_key: idempotencyKey,
+        }),
       });
 
       if (!res.ok) {
@@ -209,7 +218,12 @@ export default function App() {
       const res = await fetch(`${API}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: [...history, { role: "user", content: text }] }),
+        body: JSON.stringify({
+          messages: [...history, { role: "user", content: text }],
+          // Lets the assistant answer order/payment-status questions when
+          // the customer has entered their number in the order form.
+          phone_number: form.phone_number || null,
+        }),
       });
       const data = await res.json();
       setMessages((m) => [...m, { role: "assistant", content: data.reply }]);

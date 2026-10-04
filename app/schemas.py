@@ -15,6 +15,9 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(min_length=1)
+    # Optional: lets the assistant look up this customer's live order
+    # status alongside the product catalog.
+    phone_number: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -96,6 +99,9 @@ class PaymentCreateRequest(BaseModel):
     phone_number: str = Field(min_length=10)
     product_name: str = Field(min_length=2)
     quantity: int = Field(gt=0)
+    # Client-generated per-attempt key. Retrying this call with the same key
+    # returns the existing Razorpay order instead of creating a new one.
+    idempotency_key: str = Field(min_length=8, max_length=128)
 
     @field_validator("phone_number")
     @classmethod

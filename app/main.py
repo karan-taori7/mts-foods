@@ -2,13 +2,13 @@ import hmac
 import hashlib
 import os
 
-import razorpay 
+import razorpay
 from dotenv import load_dotenv
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from anthropic import AsyncAnthropic
-from app.services.chat_service import build_product_context
+from app.services.chat_service import build_order_context, build_product_context
 
 from app.database import get_db, engine
 from app.models import Base, Order
@@ -41,6 +41,8 @@ from app.services.product_service import (
 from app.services.order_service import (
     create_order as create_order_service,
     get_all_orders,
+    get_order_by_idempotency_key,
+    get_order_by_razorpay_order_id,
 )
 
 load_dotenv()
@@ -49,6 +51,9 @@ Base.metadata.create_all(bind=engine)
 
 RAZORPAY_KEY_ID = os.environ["RAZORPAY_KEY_ID"]
 RAZORPAY_KEY_SECRET = os.environ["RAZORPAY_KEY_SECRET"]
+# Optional until webhook reconciliation is configured in the Razorpay
+# dashboard — the app must still boot without it.
+RAZORPAY_WEBHOOK_SECRET = os.environ.get("RAZORPAY_WEBHOOK_SECRET")
 
 
 def seed_products():
@@ -126,6 +131,7 @@ def business_info():
 @app.post("/chat", response_model=ChatResponse, status_code=200)
 async def chat(req: ChatRequest, db: Session = Depends(get_db)):
     product_context = build_product_context(db)
+    order_context = build_order_context(db, req.phone_number)
 
     instructions = (
         "You are the friendly assistant for MT's Foods, "
@@ -135,9 +141,13 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db)):
         "- Do not use markdown, bold text, bullet symbols, or asterisks.\n"
         "- Use simple plain text only.\n"
         "- Mention prices only from the product list below.\n"
-        "- If asked for products, suggest only 3-5 relevant products, not the full list.\n\n"
+        "- If asked for products, suggest only 3-5 relevant products, not the full list.\n"
+        "- If the customer asks about an order or payment, answer using the "
+        "order list below; if it's empty, say you don't see an order for "
+        "their number yet.\n\n"
         "Product list from database:\n"
-        f"{product_context}"
+        f"{product_context}\n"
+        f"{order_context}"
     )
 
     messages = [
@@ -191,11 +201,24 @@ def me(current_user=Depends(get_current_user)):
 
 @app.post("/payment/create-order", status_code=200)
 def payment_create_order(req: PaymentCreateRequest, db: Session = Depends(get_db)):
+    # Idempotency: a retried request with the same key (e.g. a network
+    # timeout retry, or a double form submit) returns the order already
+    # created for it instead of opening a second Razorpay order.
+    existing = get_order_by_idempotency_key(db, req.idempotency_key)
+    if existing is not None:
+        return {
+            "razorpay_order_id": existing.razorpay_order_id,
+            "amount": existing.total_mrp * 100,
+            "currency": "INR",
+            "key_id": RAZORPAY_KEY_ID,
+        }
+
     product = get_product_by_name(db, req.product_name)
     if product is None:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    total_paise = product.mrp * req.quantity * 100
+    total_price = product.mrp * req.quantity
+    total_paise = total_price * 100
 
     rz_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
     rz_order = rz_client.order.create({
@@ -203,6 +226,22 @@ def payment_create_order(req: PaymentCreateRequest, db: Session = Depends(get_db
         "currency": "INR",
         "receipt": f"mts_{req.phone_number}",
     })
+
+    # Create the order row now, in a pending state, keyed by the Razorpay
+    # order id — /payment/verify and the webhook both reconcile onto this
+    # same row rather than inserting a new one.
+    order = Order(
+        customer_name=req.customer_name,
+        phone_number=req.phone_number,
+        product_name=product.name,
+        quantity=req.quantity,
+        total_mrp=total_price,
+        payment_status="created",
+        razorpay_order_id=rz_order["id"],
+        idempotency_key=req.idempotency_key,
+    )
+    db.add(order)
+    db.commit()
 
     return {
         "razorpay_order_id": rz_order["id"],
@@ -214,6 +253,16 @@ def payment_create_order(req: PaymentCreateRequest, db: Session = Depends(get_db
 
 @app.post("/payment/verify", status_code=201)
 def payment_verify(req: PaymentVerifyRequest, db: Session = Depends(get_db)):
+    order = get_order_by_razorpay_order_id(db, req.razorpay_order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # Idempotent: if this order was already reconciled (by this endpoint
+    # being called twice, or by the webhook beating us to it), don't
+    # re-verify or double-write — just confirm success.
+    if order.payment_status == "paid":
+        return {"message": "Payment verified and order placed", "order_id": order.id}
+
     msg = f"{req.razorpay_order_id}|{req.razorpay_payment_id}"
     generated = hmac.new(
         RAZORPAY_KEY_SECRET.encode(),
@@ -224,25 +273,56 @@ def payment_verify(req: PaymentVerifyRequest, db: Session = Depends(get_db)):
     if not hmac.compare_digest(generated, req.razorpay_signature):
         raise HTTPException(status_code=400, detail="Invalid payment signature")
 
-    product = get_product_by_name(db, req.product_name)
-    if product is None:
-        raise HTTPException(status_code=404, detail="Product not found")
-
-    order = Order(
-        customer_name=req.customer_name,
-        phone_number=req.phone_number,
-        product_name=product.name,
-        quantity=req.quantity,
-        total_mrp=product.mrp * req.quantity,
-        payment_status="paid",
-        razorpay_order_id=req.razorpay_order_id,
-        razorpay_payment_id=req.razorpay_payment_id,
-    )
-    db.add(order)
+    order.payment_status = "paid"
+    order.razorpay_payment_id = req.razorpay_payment_id
     db.commit()
-    db.refresh(order)
 
     return {"message": "Payment verified and order placed", "order_id": order.id}
+
+
+@app.post("/payment/webhook", status_code=200)
+async def payment_webhook(request: Request, db: Session = Depends(get_db)):
+    """Server-to-server reconciliation path. Catches payments that the
+    browser-side /payment/verify call never reported — e.g. the customer
+    closed the tab right after paying, or the verify call failed to reach
+    us — so a captured payment is never silently missed.
+    """
+    if not RAZORPAY_WEBHOOK_SECRET:
+        raise HTTPException(status_code=503, detail="Webhook not configured")
+
+    body = await request.body()
+    signature = request.headers.get("X-Razorpay-Signature", "")
+
+    generated = hmac.new(
+        RAZORPAY_WEBHOOK_SECRET.encode(),
+        body,
+        hashlib.sha256,
+    ).hexdigest()
+
+    if not hmac.compare_digest(generated, signature):
+        raise HTTPException(status_code=400, detail="Invalid webhook signature")
+
+    payload = await request.json()
+    event = payload.get("event")
+    payment_entity = payload.get("payload", {}).get("payment", {}).get("entity", {})
+    razorpay_order_id = payment_entity.get("order_id")
+
+    if not razorpay_order_id:
+        return {"status": "ignored"}
+
+    order = get_order_by_razorpay_order_id(db, razorpay_order_id)
+    if order is None:
+        return {"status": "ignored"}
+
+    if event == "payment.captured" and order.payment_status != "paid":
+        order.payment_status = "paid"
+        order.razorpay_payment_id = payment_entity.get("id")
+        db.commit()
+    elif event == "payment.failed" and order.payment_status not in ("paid", "failed"):
+        order.payment_status = "failed"
+        db.commit()
+
+    return {"status": "ok"}
 
 
 # =========================

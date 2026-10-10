@@ -20,14 +20,26 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/mts_foods
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@db:5432/mts_foods
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       SECRET_KEY: ${SECRET_KEY}
       ALGORITHM: ${ALGORITHM}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
       RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID}
       RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5173,http://localhost}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  grpc:
+    build: .
+    command: ["python", "-m", "app.rpc.server"]
+    ports:
+      - "50051:50051"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@db:5432/mts_foods
     depends_on:
       db:
         condition: service_healthy

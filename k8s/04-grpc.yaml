@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grpc
+  namespace: mts-foods
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: grpc
+  template:
+    metadata:
+      labels:
+        app: grpc
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          command:
+            - sh
+            - -c
+            - until pg_isready -h postgres -p 5432 -U postgres; do echo waiting for postgres; sleep 2; done
+      containers:
+        - name: grpc
+          image: mts-foods-backend:local # same image as backend, different command
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "app.rpc.server"]
+          ports:
+            - containerPort: 50051
+          env:
+            - name: GRPC_PORT
+              value: "50051"
+          envFrom:
+            - secretRef:
+                name: app-secrets # only needs DATABASE_URL, but keeping it simple
+          readinessProbe:
+            tcpSocket:
+              port: 50051
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 50051
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grpc
+  namespace: mts-foods
+spec:
+  selector:
+    app: grpc
+  ports:
+    - port: 50051
+      targetPort: 50051

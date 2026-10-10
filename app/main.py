@@ -8,6 +8,7 @@ from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from anthropic import AsyncAnthropic
+from prometheus_fastapi_instrumentator import Instrumentator
 from app.services.chat_service import build_order_context, build_product_context
 
 from app.database import get_db, engine
@@ -85,6 +86,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Exposes request count / latency / in-progress gauges at GET /metrics for
+# Prometheus to scrape.
+Instrumentator().instrument(app).expose(app)
 
 
 @app.get("/", status_code=200)

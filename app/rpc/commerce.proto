@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package commerce;
+
+// Mirrors the /products REST routes, plus an order-status lookup that
+// reuses the same order-context logic the AI assistant uses.
+service CommerceService {
+  rpc ListProducts(Empty) returns (ProductListReply);
+  rpc GetProduct(ProductRequest) returns (ProductReply);
+  rpc GetOrderStatus(OrderStatusRequest) returns (OrderStatusReply);
+}
+
+message Empty {}
+
+message ProductRequest {
+  int32 id = 1;
+}
+
+message ProductReply {
+  int32 id = 1;
+  string name = 2;
+  int32 mrp = 3;
+}
+
+message ProductListReply {
+  repeated ProductReply products = 1;
+}
+
+message OrderStatusRequest {
+  string phone_number = 1;
+}
+
+message OrderStatusReply {
+  message Order {
+    int32 id = 1;
+    string product_name = 2;
+    int32 quantity = 3;
+    int32 total_mrp = 4;
+    string payment_status = 5;
+    string status = 6;
+  }
+  repeated Order orders = 1;
+}

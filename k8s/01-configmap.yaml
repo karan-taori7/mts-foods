@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: mts-foods
+data:
+  ALGORITHM: "HS256"
+  ACCESS_TOKEN_EXPIRE_MINUTES: "60"
+  # Same-origin in-cluster (nginx proxies /api routes to the backend Service),
+  # so this only matters if something calls the backend cross-origin.
+  ALLOWED_ORIGINS: "http://localhost"

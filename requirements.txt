@@ -9,3 +9,6 @@ python-jose[cryptography]
 passlib[bcrypt]
 python-multipart
 razorpay
+grpcio
+grpcio-tools
+prometheus-fastapi-instrumentator

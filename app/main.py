@@ -1,5 +1,6 @@
 import hmac
 import hashlib
+import logging
 import os
 
 import razorpay
@@ -9,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from anthropic import AsyncAnthropic
 from prometheus_fastapi_instrumentator import Instrumentator
-from app.services.chat_service import build_order_context, build_product_context
+from app.agent.harness import run_agent
 
 from app.database import get_db, engine
 from app.models import Base, Order
@@ -47,6 +48,7 @@ from app.services.order_service import (
 )
 
 load_dotenv()
+logging.basicConfig(level=logging.INFO)
 
 Base.metadata.create_all(bind=engine)
 
@@ -135,9 +137,6 @@ def business_info():
 
 @app.post("/chat", response_model=ChatResponse, status_code=200)
 async def chat(req: ChatRequest, db: Session = Depends(get_db)):
-    product_context = build_product_context(db)
-    order_context = build_order_context(db, req.phone_number)
-
     instructions = (
         "You are the friendly assistant for MT's Foods, "
         "a homemade papad business.\n\n"
@@ -145,15 +144,16 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db)):
         "- Answer in 2-4 short lines.\n"
         "- Do not use markdown, bold text, bullet symbols, or asterisks.\n"
         "- Use simple plain text only.\n"
-        "- Mention prices only from the product list below.\n"
-        "- If asked for products, suggest only 3-5 relevant products, not the full list.\n"
-        "- If the customer asks about an order or payment, answer using the "
-        "order list below; if it's empty, say you don't see an order for "
-        "their number yet.\n\n"
-        "Product list from database:\n"
-        f"{product_context}\n"
-        f"{order_context}"
+        "- Use the list_products tool before answering any question about "
+        "products or prices — never guess one from memory.\n"
+        "- Use the get_order_status tool whenever the customer asks about "
+        "an order, delivery, or payment — never guess its status. If the "
+        "customer hasn't given a phone number yet, ask for it first.\n"
+        "- If asked for products, suggest only 3-5 relevant products, not "
+        "the full list."
     )
+    if req.phone_number:
+        instructions += f"\nThe customer's phone number is {req.phone_number}."
 
     messages = [
         {
@@ -163,14 +163,13 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db)):
         for message in req.messages
     ]
 
-    response = await anthropic_client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=500,
+    reply_text = await run_agent(
+        client=anthropic_client,
+        db=db,
         system=instructions,
         messages=messages,
+        model="claude-haiku-4-5-20251001",
     )
-
-    reply_text = response.content[0].text
 
     return ChatResponse(reply=reply_text)
 
